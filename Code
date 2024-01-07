@@ -1,0 +1,116 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// WiFi and ThingSpeak credentials
+const char* ssid = "Linksys05517";
+const char* password = "sjfx6pngph";
+const String apiWriteKey = "ERSPB4IXN82PUPTW";
+const String apiKey = "GLWQU7W7CH5XTU4Z";
+
+// Data wire is connected to GPIO 4
+const int oneWireBus = 4;
+const int analogPin = A0; // Analog pin connected to the pH sensor
+const float referenceVoltage = 3.3; // Reference voltage for the ADC
+
+OneWire oneWire(oneWireBus);
+DallasTemperature sensors(&oneWire);
+
+void setup() {
+  Serial.begin(115200);
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+
+  // Start the DS18B20 sensor
+  sensors.begin();
+}
+
+void loop() {
+  // Read temperature
+  float temperatureC = readTemperature();
+
+  // Read pH
+  float pHValue = readPH();
+
+  // Check if readings are valid
+  if (temperatureC != DEVICE_DISCONNECTED_C && pHValue >= 0) {
+    Serial.print("Temperature: ");
+    Serial.println(temperatureC);
+
+    Serial.print("pH Value: ");
+    Serial.println(pHValue);
+
+    // Send data to ThingSpeak
+    sendToThingSpeak(temperatureC, pHValue);
+  } else {
+    Serial.println("Error reading temperature or pH");
+  }
+
+  // Delay for a minute (60000 milliseconds)
+  delay(2000);
+}
+
+float readTemperature() {
+  sensors.requestTemperatures();
+  return sensors.getTempCByIndex(0);
+}
+
+float readPH() {
+  int sensorValue = analogRead(analogPin);
+  float voltage = sensorValue * (referenceVoltage / 4095.0);
+  return convertToPH(voltage);
+}
+
+void sendToThingSpeak(float temperature, float pH) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    // ThingSpeak server address for temperature
+    String tempServer = "http://api.thingspeak.com/update";
+    String tempUrl = tempServer + "?api_key=" + apiKey + "&field1=" + String(temperature);
+    
+    // Start the HTTP GET request for temperature
+    http.begin(tempUrl);
+    int tempHttpCode = http.GET();
+
+    if (tempHttpCode > 0) {
+      Serial.println("Temperature data sent to ThingSpeak successfully");
+    } else {
+      Serial.println("Error sending temperature data to ThingSpeak");
+    }
+
+    // ThingSpeak server address for pH
+    String pHServer = "http://api.thingspeak.com/update";
+    String pHUrl = pHServer + "?api_key=" + apiWriteKey + "&field1=" + String(pH);
+
+    // Start the HTTP GET request for pH
+    http.begin(pHUrl);
+    int pHHttpCode = http.GET();
+
+    if (pHHttpCode > 0) {
+      Serial.println("pH data sent to ThingSpeak successfully");
+    } else {
+      Serial.println("Error sending pH data to ThingSpeak");
+    }
+
+    // Close the connection
+    http.end();
+  } else {
+    Serial.println("Not connected to WiFi");
+  }
+}
+
+float convertToPH(float voltage) {
+  // Replace this with your actual calibration equation
+  // Example calibration equation: pH = 7 - (voltage - 2.5) * 2
+  return 7 - (voltage - 2.5) * 2;
+}
+
